@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Correlated Brownian Motion Simulation</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f6; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #2c3e50; }
+        .controls { display: flex; justify-content: space-around; background: #eef2f5; padding: 20px; border-radius: 8px; margin-bottom: 20px; flex-wrap: wrap;}
+        .control-group { display: flex; flex-direction: column; align-items: center; min-width: 200px; margin: 10px;}
+        input[type="range"] { width: 100%; margin-top: 10px; }
+        .val-display { font-weight: bold; color: #0056b3; margin-top: 5px; }
+        .charts { display: flex; flex-wrap: wrap; gap: 20px; }
+        .chart-box { flex: 1; min-width: 400px; height: 600px; border: 1px solid #ddd; border-radius: 8px; background: #fff; }
+        button { background: #0056b3; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; transition: background 0.3s; margin-top: 15px;}
+        button:hover { background: #003d82; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>2D Correlated Brownian Motion Simulator</h1>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label for="rho">Correlation (&rho;)</label>
+            <input type="range" id="rho" min="-1" max="1" step="0.05" value="0">
+            <div class="val-display" id="rho-val">0.00</div>
+        </div>
+        <div class="control-group">
+            <label for="a">Volatility X (a)</label>
+            <input type="range" id="a" min="0.1" max="5" step="0.1" value="1">
+            <div class="val-display" id="a-val">1.0</div>
+        </div>
+        <div class="control-group">
+            <label for="b">Volatility Y (b)</label>
+            <input type="range" id="b" min="0.1" max="5" step="0.1" value="1">
+            <div class="val-display" id="b-val">1.0</div>
+        </div>
+        <div class="control-group">
+            <button onclick="generateNewPaths()">Generate New Ensemble</button>
+        </div>
+    </div>
+
+    <div class="charts">
+        <div id="plot1" class="chart-box"></div>
+        <div id="plot2" class="chart-box"></div>
+    </div>
+</div>
+
+<script>
+    // --- 1. Simulation Parameters ---
+    const n_paths = 10;
+    const n_steps = 500;
+    const dt = 1.0 / n_steps;
+    
+    // Base standard normal noise arrays
+    let W1 = [];
+    let W2 = [];
+    let time = [];
+
+    // --- 2. Math Utility: Box-Muller Transform for Normal Distribution ---
+    function randn_bm() {
+        let u = 0, v = 0;
+        while(u === 0) u = Math.random();
+        while(v === 0) v = Math.random();
+        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+
+    // --- 3. Generate Base Randomness ---
+    function generateBaseNoise() {
+        W1 = [];
+        W2 = [];
+        time = [];
+        for (let p = 0; p < n_paths; p++) {
+            let pathW1 = [0.0];
+            let pathW2 = [0.0];
+            let currentW1 = 0.0;
+            let currentW2 = 0.0;
+            
+            for (let s = 1; s <= n_steps; s++) {
+                currentW1 += Math.sqrt(dt) * randn_bm();
+                currentW2 += Math.sqrt(dt) * randn_bm();
+                pathW1.push(currentW1);
+                pathW2.push(currentW2);
+            }
+            W1.push(pathW1);
+            W2.push(pathW2);
+        }
+        for(let s=0; s<=n_steps; s++) time.push(s * dt);
+    }
+
+    // --- 4. Core Update and Plotting Logic ---
+    function updatePlots() {
+        const rho = parseFloat(document.getElementById('rho').value);
+        const a = parseFloat(document.getElementById('a').value);
+        const b = parseFloat(document.getElementById('b').value);
+        
+        document.getElementById('rho-val').innerText = rho.toFixed(2);
+        document.getElementById('a-val').innerText = a.toFixed(1);
+        document.getElementById('b-val').innerText = b.toFixed(1);
+
+        let traces2D = [];
+        let tracesDist = [];
+        let meanDist = new Array(n_steps + 1).fill(0);
+
+        // Reference y=x line for 2D plot
+        traces2D.push({
+            x: [-10, 10], y: [-10, 10],
+            mode: 'lines', line: {color: 'black', dash: 'dash', width: 2},
+            name: 'y = x', hoverinfo: 'none'
+        });
+
+        // Calculate paths and squared distances
+        for (let p = 0; p < n_paths; p++) {
+            let X = [];
+            let Y = [];
+            let sqDist = [];
+            
+            for (let s = 0; s <= n_steps; s++) {
+                let x_val = a * W1[p][s];
+                // Y = b * (rho * W1 + sqrt(1-rho^2) * W2)
+                let y_val = b * ((rho * W1[p][s]) + (Math.sqrt(1 - rho*rho) * W2[p][s]));
+                
+                X.push(x_val);
+                Y.push(y_val);
+                
+                let dist = Math.pow(x_val - y_val, 2) / 2.0;
+                sqDist.push(dist);
+                meanDist[s] += dist / n_paths; // Add to mean accumulator
+            }
+
+            // Add trace for 2D Space
+            traces2D.push({
+                x: X, y: Y, mode: 'lines',
+                line: {width: 1.5}, opacity: 0.6, showlegend: false
+            });
+
+            // Add trace for Distance Plot
+            tracesDist.push({
+                x: time, y: sqDist, mode: 'lines',
+                line: {width: 1}, opacity: 0.3, showlegend: false
+            });
+        }
+
+        // Add the Mean line to the distance plot
+        tracesDist.push({
+            x: time, y: meanDist, mode: 'lines',
+            line: {color: 'black', dash: 'dash', width: 4}, name: 'Empirical Mean'
+        });
+
+        // --- Layout Configurations ---
+        const layout2D = {
+            title: 'Ensemble of 10 Correlated Paths',
+            xaxis: { title: 'X Coordinate', range: [-6, 6] },
+            yaxis: { title: 'Y Coordinate', range: [-6, 6], scaleanchor: "x", scaleratio: 1 }, // Forces strict square aspect ratio!
+            showlegend: true, hovermode: false, margin: {t: 50, b: 50, l: 50, r: 50}
+        };
+
+        const layoutDist = {
+            title: 'Squared Distance to y=x Target',
+            xaxis: { title: 'Time (t)', range: [0, 1] },
+            yaxis: { title: 'Squared Penalty (D²)', autorange: true, rangemode: 'nonnegative' },
+            showlegend: true, hovermode: false, margin: {t: 50, b: 50, l: 50, r: 50}
+        };
+
+        Plotly.react('plot1', traces2D, layout2D);
+        Plotly.react('plot2', tracesDist, layoutDist);
+    }
+
+    // --- 5. Event Listeners ---
+    document.getElementById('rho').addEventListener('input', updatePlots);
+    document.getElementById('a').addEventListener('input', updatePlots);
+    document.getElementById('b').addEventListener('input', updatePlots);
+
+    function generateNewPaths() {
+        generateBaseNoise();
+        updatePlots();
+    }
+
+    // --- 6. Initialize on Load ---
+    generateNewPaths();
+</script>
+</body>
+</html>
