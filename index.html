@@ -172,11 +172,11 @@
         };
 
         const layoutDist = {
-            title: 'Squared Distance to y=x Target',
-            xaxis: { title: 'Time (t)', range: [0, 1] },
-            yaxis: { title: 'Squared Penalty (D²)', autorange: true, rangemode: 'nonnegative' },
-            showlegend: true, hovermode: false, margin: {t: 50, b: 50, l: 50, r: 50}
-        };
+    title: 'Squared Distance to y=x Target',
+    xaxis: { title: 'Time (t)', range: [0, 1] },
+    yaxis: { title: 'Squared Penalty (D²)', range: [0, 7] }, // Fixed height of 7!
+    showlegend: true, hovermode: false, margin: {t: 50, b: 50, l: 50, r: 50}
+};
 
         Plotly.react('plot1', traces2D, layout2D);
         Plotly.react('plot2', tracesDist, layoutDist);
