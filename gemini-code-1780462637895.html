@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Lévy Process Simulation</title>
+    <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --panel-bg: #1a1a1a;
+            --text-main: #bbbbbb;
+            --text-muted: #666666;
+            --color-x: #4A9EE0;
+            --color-y: #1DB87A;
+            --grid-line: #2a2a2a;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            background: var(--panel-bg);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            flex-wrap: wrap;
+        }
+        .param-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            border-right: 1px solid var(--grid-line);
+            padding-right: 15px;
+        }
+        .param-group:last-child {
+            border-right: none;
+        }
+        .param-group label { color: var(--text-muted); }
+        .param-group input {
+            width: 45px;
+            background: var(--bg-color);
+            border: 1px solid var(--grid-line);
+            color: white;
+            border-radius: 4px;
+            padding: 3px;
+            text-align: center;
+        }
+        button {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background: #555; }
+        
+        .grid-container {
+            display: grid;
+            grid-template-columns: 2.2fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 15px;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        .canvas-wrapper {
+            position: relative;
+            background: var(--bg-color);
+            border: 1px solid var(--grid-line);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .title {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            font-weight: bold;
+            background: var(--bg-color);
+            padding: 0 5px;
+        }
+        .plot-2d { grid-column: 1 / 2; grid-row: 1 / 3; }
+        .plot-x { grid-column: 2 / 3; grid-row: 1 / 2; }
+        .plot-y { grid-column: 3 / 4; grid-row: 1 / 2; }
+        .plot-dx { grid-column: 2 / 3; grid-row: 2 / 3; }
+        .plot-dy { grid-column: 3 / 4; grid-row: 2 / 3; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="controls">
+            <div class="param-group" style="color: var(--color-x)">
+                <strong>X Triplet</strong>
+                <label>b <input type="number" id="x_b" step="0.1" value="0.0"></label>
+                <label>σ <input type="number" id="x_sigma" step="0.05" value="0.30"></label>
+                <label>λ <input type="number" id="x_lam" step="0.5" value="5.0"></label>
+                <label>μ_J <input type="number" id="x_muJ" step="0.01" value="-0.08"></label>
+                <label>σ_J <input type="number" id="x_sigJ" step="0.01" value="0.14"></label>
+            </div>
+            <div class="param-group" style="color: var(--color-y)">
+                <strong>Y Triplet</strong>
+                <label>b <input type="number" id="y_b" step="0.1" value="0.0"></label>
+                <label>σ <input type="number" id="y_sigma" step="0.05" value="0.30"></label>
+                <label>λ <input type="number" id="y_lam" step="0.5" value="3.0"></label>
+                <label>μ_J <input type="number" id="y_muJ" step="0.01" value="0.05"></label>
+                <label>σ_J <input type="number" id="y_sigJ" step="0.01" value="0.20"></label>
+            </div>
+            <div class="param-group">
+                <button onclick="resetSimulation()">Regenerate (R)</button>
+                <button onclick="togglePause()" id="pauseBtn">Pause (Space)</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid-container">
+        <div class="canvas-wrapper plot-2d">
+            <div class="title" style="color: #bbb;">2D Lévy Path — spatial plane</div>
+            <canvas id="canvas2d"></canvas>
+        </div>
+        <div class="canvas-wrapper plot-x">
+            <div class="title" style="color: var(--color-x);">X(t)</div>
+            <canvas id="canvasX"></canvas>
+        </div>
+        <div class="canvas-wrapper plot-y">
+            <div class="title" style="color: var(--color-y);">Y(t)</div>
+            <canvas id="canvasY"></canvas>
+        </div>
+        <div class="canvas-wrapper plot-dx">
+            <div class="title" style="color: var(--color-x);">X increment density</div>
+            <canvas id="canvasDX"></canvas>
+        </div>
+        <div class="canvas-wrapper plot-dy">
+            <div class="title" style="color: var(--color-y);">Y increment density</div>
+            <canvas id="canvasDY"></canvas>
+        </div>
+    </div>
+
+<script>
+// ─── Simulation Settings ──────────────────────────────────────────────────
+const N_STEPS = 500;
+const T = 1.0;
+const FPS = 30;
+const TRAIL = 100;
+const dt = T / N_STEPS;
+
+const COLOR_X = '#4A9EE0';
+const COLOR_Y = '#1DB87A';
+
+// ─── Math Core (Translated from Python) ──────────────────────────────────
+function fourier_inversion(p, dt, nx=150, nu=400) {
+    const tot_var = (p.sigma**2 + p.lam * (p.mu_J**2 + p.sig_J**2)) * dt;
+    const tot_mean = (p.b + p.lam * p.mu_J) * dt;
+    const x_std = Math.sqrt(Math.max(tot_var, 1e-8));
+    const x_range = Math.max(4.5 * x_std, 0.05) + Math.abs(tot_mean) * 0.6 + 0.25;
+    const u_max = Math.min(90.0, 8.0 / Math.max(x_std, 1e-3));
+    
+    const u = new Float64Array(nu);
+    for (let i = 0; i < nu; i++) u[i] = 1e-6 + i * (u_max / nu);
+    
+    const xs = new Float64Array(nx);
+    const dx_step = (2 * x_range) / (nx - 1);
+    const start_x = tot_mean - x_range;
+    for (let i = 0; i < nx; i++) xs[i] = start_x + i * dx_step;
+
+    const fs = new Float64Array(nx);
+
+    // Compute characteristic exponent and inverse fourier transform
+    for (let i = 0; i < nu; i++) {
+        const ui = u[i];
+        const u_sq = ui * ui;
+        
+        // Complex components of the characteristic exponent
+        const E_r = -0.5 * p.sigma**2 * u_sq + p.lam * (Math.exp(-0.5 * p.sig_J**2 * u_sq) * Math.cos(p.mu_J * ui) - 1);
+        const E_i = p.lam * (Math.exp(-0.5 * p.sig_J**2 * u_sq) * Math.sin(p.mu_J * ui)) + p.b * ui;
+
+        // Phi = exp(dt * E)
+        const phi_r = Math.exp(dt * E_r) * Math.cos(dt * E_i);
+        const phi_i = Math.exp(dt * E_r) * Math.sin(dt * E_i);
+
+        for (let j = 0; j < nx; j++) {
+            const theta = xs[j] * ui;
+            const kernel_real = phi_r * Math.cos(theta) + phi_i * Math.sin(theta);
+            fs[j] += kernel_real;
+        }
+    }
+
+    for (let j = 0; j < nx; j++) {
+        fs[j] = Math.max(fs[j] * (u_max / nu) / Math.PI, 0.0);
+    }
+    return {xs, fs};
+}
+
+function build_cdf(xs, fs) {
+    const nx = xs.length;
+    const dx = xs[1] - xs[0];
+    const cdf = new Float64Array(nx);
+    cdf[0] = 0;
+    for (let i = 1; i < nx; i++) {
+        cdf[i] = cdf[i-1] + 0.5 * (fs[i] + fs[i-1]) * dx;
+    }
+    const max_val = Math.max(cdf[nx-1], 1e-12);
+    for (let i = 0; i < nx; i++) cdf[i] /= max_val;
+    return cdf;
+}
+
+function sample_density(xs, cdf, n_steps) {
+    const samples = new Float64Array(n_steps);
+    const nx = xs.length;
+    for (let i = 0; i < n_steps; i++) {
+        const u = Math.random();
+        let idx = 1;
+        while (idx < nx - 1 && cdf[idx] < u) idx++;
+        const denom = Math.max(cdf[idx] - cdf[idx-1], 1e-12);
+        const t = (u - cdf[idx-1]) / denom;
+        samples[i] = xs[idx-1] + t * (xs[idx] - xs[idx-1]);
+    }
+    return samples;
+}
+
+function generate_path(px, py) {
+    const dX_data = fourier_inversion(px, dt);
+    const cdf_x = build_cdf(dX_data.xs, dX_data.fs);
+    const dY_data = fourier_inversion(py, dt);
+    const cdf_y = build_cdf(dY_data.xs, dY_data.fs);
+
+    const dx = sample_density(dX_data.xs, cdf_x, N_STEPS);
+    const dy = sample_density(dY_data.xs, cdf_y, N_STEPS);
+
+    const X = new Float64Array(N_STEPS + 1);
+    const Y = new Float64Array(N_STEPS + 1);
+    X[0] = 0; Y[0] = 0;
+    for (let i = 1; i <= N_STEPS; i++) {
+        X[i] = X[i-1] + dx[i-1];
+        Y[i] = Y[i-1] + dy[i-1];
+    }
+    return { X, Y, dX_data, dY_data };
+}
+
+// ─── Rendering Core ───────────────────────────────────────────────────────
+let state = {
+    frame: 0,
+    paused: false,
+    X: null, Y: null,
+    dX_data: null, dY_data: null,
+    limits: {},
+    t_grid: new Float64Array(N_STEPS + 1)
+};
+
+for (let i = 0; i <= N_STEPS; i++) state.t_grid[i] = i * dt;
+
+function getParams() {
+    return {
+        px: {
+            b: parseFloat(document.getElementById('x_b').value),
+            sigma: parseFloat(document.getElementById('x_sigma').value),
+            lam: parseFloat(document.getElementById('x_lam').value),
+            mu_J: parseFloat(document.getElementById('x_muJ').value),
+            sig_J: parseFloat(document.getElementById('x_sigJ').value)
+        },
+        py: {
+            b: parseFloat(document.getElementById('y_b').value),
+            sigma: parseFloat(document.getElementById('y_sigma').value),
+            lam: parseFloat(document.getElementById('y_lam').value),
+            mu_J: parseFloat(document.getElementById('y_muJ').value),
+            sig_J: parseFloat(document.getElementById('y_sigJ').value)
+        }
+    };
+}
+
+function initCanvas(id) {
+    const canvas = document.getElementById(id);
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    return { canvas, ctx, w: rect.width, h: rect.height };
+}
+
+function mapVal(v, vMin, vMax, cMin, cMax) {
+    return cMin + (v - vMin) * (cMax - cMin) / (vMax - vMin);
+}
+
+function drawGrid(ctx, w, h, xMin, xMax, yMin, yMax) {
+    ctx.strokeStyle = '#2a2a2a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    // Origin lines
+    const x0 = mapVal(0, xMin, xMax, 0, w);
+    const y0 = mapVal(0, yMin, yMax, h, 0);
+    if (x0 >= 0 && x0 <= w) { ctx.moveTo(x0, 0); ctx.lineTo(x0, h); }
+    if (y0 >= 0 && y0 <= h) { ctx.moveTo(0, y0); ctx.lineTo(w, y0); }
+    ctx.stroke();
+}
+
+function render() {
+    if (!state.X) return;
+
+    const c2d = initCanvas('canvas2d');
+    const cx = initCanvas('canvasX');
+    const cy = initCanvas('canvasY');
+    const cdx = initCanvas('canvasDX');
+    const cdy = initCanvas('canvasDY');
+
+    const i = state.frame % (N_STEPS + 1);
+
+    // 1. Draw 2D Plane
+    c2d.ctx.clearRect(0, 0, c2d.w, c2d.h);
+    drawGrid(c2d.ctx, c2d.w, c2d.h, state.limits.xMin, state.limits.xMax, state.limits.yMin, state.limits.yMax);
+    
+    // Ghost path (full dim)
+    c2d.ctx.beginPath();
+    for (let j = 0; j <= i; j++) {
+        const cx_pos = mapVal(state.X[j], state.limits.xMin, state.limits.xMax, 0, c2d.w);
+        const cy_pos = mapVal(state.Y[j], state.limits.yMin, state.limits.yMax, c2d.h, 0);
+        if(j===0) c2d.ctx.moveTo(cx_pos, cy_pos); else c2d.ctx.lineTo(cx_pos, cy_pos);
+    }
+    c2d.ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+    c2d.ctx.lineWidth = 1;
+    c2d.ctx.stroke();
+
+    // Trail path
+    const lo = Math.max(0, i - TRAIL);
+    for (let j = lo; j < i; j++) {
+        c2d.ctx.beginPath();
+        const cx1 = mapVal(state.X[j], state.limits.xMin, state.limits.xMax, 0, c2d.w);
+        const cy1 = mapVal(state.Y[j], state.limits.yMin, state.limits.yMax, c2d.h, 0);
+        const cx2 = mapVal(state.X[j+1], state.limits.xMin, state.limits.xMax, 0, c2d.w);
+        const cy2 = mapVal(state.Y[j+1], state.limits.yMin, state.limits.yMax, c2d.h, 0);
+        c2d.ctx.moveTo(cx1, cy1);
+        c2d.ctx.lineTo(cx2, cy2);
+        
+        const alpha = (j - lo) / (i - lo);
+        c2d.ctx.strokeStyle = `rgba(150, 200, 255, ${alpha})`;
+        c2d.ctx.lineWidth = 0.5 + 2 * alpha;
+        c2d.ctx.stroke();
+    }
+
+    // Dot
+    const currentX = mapVal(state.X[i], state.limits.xMin, state.limits.xMax, 0, c2d.w);
+    const currentY = mapVal(state.Y[i], state.limits.yMin, state.limits.yMax, c2d.h, 0);
+    c2d.ctx.beginPath();
+    c2d.ctx.arc(currentX, currentY, 4, 0, Math.PI * 2);
+    c2d.ctx.fillStyle = 'white';
+    c2d.ctx.strokeStyle = COLOR_X;
+    c2d.ctx.lineWidth = 2;
+    c2d.ctx.fill();
+    c2d.ctx.stroke();
+    
+    // Time text
+    c2d.ctx.fillStyle = '#888';
+    c2d.ctx.font = '12px monospace';
+    c2d.ctx.fillText(`t = ${state.t_grid[i].toFixed(3)}`, 15, 35);
+
+    // 2. Draw 1D Paths (X and Y)
+    function draw1D(c, data, minVal, maxVal, color) {
+        c.ctx.clearRect(0, 0, c.w, c.h);
+        drawGrid(c.ctx, c.w, c.h, 0, T, minVal, maxVal);
+        c.ctx.beginPath();
+        for (let j = 0; j <= i; j++) {
+            const tx = mapVal(state.t_grid[j], 0, T, 0, c.w);
+            const ty = mapVal(data[j], minVal, maxVal, c.h, 0);
+            if(j===0) c.ctx.moveTo(tx, ty); else c.ctx.lineTo(tx, ty);
+        }
+        c.ctx.strokeStyle = color;
+        c.ctx.lineWidth = 1.5;
+        c.ctx.stroke();
+    }
+    draw1D(cx, state.X, state.limits.xMin, state.limits.xMax, COLOR_X);
+    draw1D(cy, state.Y, state.limits.yMin, state.limits.yMax, COLOR_Y);
+
+    // 3. Draw Densities
+    function drawDensity(c, densData, color, incVal) {
+        c.ctx.clearRect(0, 0, c.w, c.h);
+        const fMax = Math.max(...densData.fs) * 1.1;
+        const xMin = densData.xs[0], xMax = densData.xs[densData.xs.length - 1];
+        
+        drawGrid(c.ctx, c.w, c.h, xMin, xMax, 0, fMax);
+
+        c.ctx.beginPath();
+        for (let j = 0; j < densData.xs.length; j++) {
+            const px = mapVal(densData.xs[j], xMin, xMax, 0, c.w);
+            const py = mapVal(densData.fs[j], 0, fMax, c.h, 0);
+            if(j===0) c.ctx.moveTo(px, py); else c.ctx.lineTo(px, py);
+        }
+        c.ctx.strokeStyle = color;
+        c.ctx.lineWidth = 1.2;
+        c.ctx.stroke();
+
+        // Fill
+        c.ctx.lineTo(c.w, c.h);
+        c.ctx.lineTo(0, c.h);
+        c.ctx.fillStyle = color + '33'; // 20% opacity
+        c.ctx.fill();
+
+        // Current Increment line
+        if (i > 0) {
+            const px = mapVal(incVal, xMin, xMax, 0, c.w);
+            c.ctx.beginPath();
+            c.ctx.moveTo(px, 0);
+            c.ctx.lineTo(px, c.h);
+            c.ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+            c.ctx.lineWidth = 1;
+            c.ctx.stroke();
+        }
+    }
+    const curDx = i > 0 ? state.X[i] - state.X[i-1] : 0;
+    const curDy = i > 0 ? state.Y[i] - state.Y[i-1] : 0;
+    drawDensity(cdx, state.dX_data, COLOR_X, curDx);
+    drawDensity(cdy, state.dY_data, COLOR_Y, curDy);
+}
+
+function loop() {
+    if (!state.paused) {
+        render();
+        state.frame++;
+    }
+    setTimeout(() => requestAnimationFrame(loop), 1000/FPS);
+}
+
+function resetSimulation() {
+    const { px, py } = getParams();
+    const data = generate_path(px, py);
+    state.X = data.X;
+    state.Y = data.Y;
+    state.dX_data = data.dX_data;
+    state.dY_data = data.dY_data;
+    state.frame = 0;
+
+    const pad = 0.1;
+    const xExt = [Math.min(...state.X), Math.max(...state.X)];
+    const yExt = [Math.min(...state.Y), Math.max(...state.Y)];
+    
+    state.limits = {
+        xMin: xExt[0] - pad, xMax: xExt[1] + pad,
+        yMin: yExt[0] - pad, yMax: yExt[1] + pad
+    };
+    
+    if (state.paused) {
+        render();
+    }
+}
+
+function togglePause() {
+    state.paused = !state.paused;
+    document.getElementById('pauseBtn').innerText = state.paused ? 'Resume (Space)' : 'Pause (Space)';
+}
+
+// Event Listeners
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+        e.preventDefault();
+        togglePause();
+    }
+    if (e.code === 'KeyR') resetSimulation();
+});
+
+window.addEventListener('resize', () => {
+    if(state.X) render(); // re-render layout on resize
+});
+
+// Initialization
+resetSimulation();
+loop();
+
+</script>
+</body>
+</html>
